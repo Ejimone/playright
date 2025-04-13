@@ -26,40 +26,37 @@ async def main():
 
         # Actions: fill the email and password fields, and click the submit button
         await page.fill("input[name='email']", "23BTRCN075@jainuniversity.ac.in")
-        await page.fill("input[name='password']", "#123@Evi")        await page.click("button[type='submit']")
+        await page.fill("input[name='password']", "#123@Evi")
+        await page.click("button[type='submit']")
         
-        # Give user time to solve any CAPTCHA/security puzzles that appear
-        print("\n\n==============================================================")
-        print("WAITING: Please solve any security puzzles that appear...")
-        print("The script will continue once the page finishes loading")
-        print("==============================================================\n\n")
-        
-        # Take a screenshot to help identify what's happening
-        await page.screenshot(path="screenshots/beforeCaptcha.png")
-        
-        # Wait for network activity to settle with a longer timeout
+        # Wait for initial page load, but with a shorter timeout
         try:
-            await page.wait_for_load_state("networkidle", timeout=120000)  # 2 minutes
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
         except Exception as e:
-            print(f"Network idle timeout, but continuing anyway: {e}")
-            
-        # Ask user if they're done with the security verification
-        print("\n\n==============================================================")
-        print("MANUAL CHECK: Have you completed all security puzzles? (y/n)")
-        print("==============================================================\n\n")
+            print(f"Page load waiting error (can be ignored): {e}")
         
-        # Wait for user confirmation before continuing
-        await page.keyboard.press("y")  # This line just makes it wait for user input
+        print("\n\n============================================================")
+        print("WAITING FOR MANUAL INTERVENTION:")
+        print("If you see a security puzzle, CAPTCHA or verification challenge,")
+        print("please solve it now in the browser window.")
+        print("============================================================\n")
         
+        # Wait for user to confirm they've solved any puzzles
+        user_input = input("Press Enter after you've completed any security challenges (or if none appeared)...")
+        print("Continuing with automation...")
+        
+        # Take screenshot after manual intervention
         await page.screenshot(path="screenshots/courseraLogin.png")
         
-        # Try to verify login success, but continue even if not found immediately
+        # Try to verify login success with more flexible approach
         try:
             await expect(page.locator("text=Profile")).to_be_visible(timeout=10000)
-            await expect(page.locator("text=Profile")).to_have_text("Profile")
-            print("Login successful.")
-        except Exception as e:
-            print(f"Warning: Couldn't verify profile visibility, but continuing: {e}")
+            print("Login successful - profile element found.")
+        except Exception:
+            print("Profile element not found, but continuing anyway...")
+        
+        print("Giving page time to fully load...")
+        await asyncio.sleep(5)  # Add a fixed delay instead of waiting for network idle
 
         # Navigate to My Courses/Learning page
         print("Navigating to My Learning...")
