@@ -15,7 +15,7 @@ async def main():
         # print(await page.title())
         # Actions, first it will click on the login button, then it will fill the email and password fields, and finally it will click on the login button
         await page.click("text=Log In")
-        await page.fill("input[name='email']","23BTRCN075@jainuniversity.ac.in")
+        await page.fill("input[name@email.com']","23BTRCN075@jainuniversity.ac.in")
         await page.fill("input[name='password']","#123@Evi")
         await page.click("button[type='submit']")
         await page.screenshot(path="screenshots/courseraLogin.png")
