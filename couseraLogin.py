@@ -14,8 +14,8 @@ async def close_overlays(page: Page):
     """Attempts to close common overlays like cookie banners."""
     try:
         print("Checking for overlays...")
-        # More robust selector for accept buttons
-        accept_button = page.locator(
+        # Combine selectors into a single string
+        accept_selector = ', '.join([
             'button:has-text("Accept")',
             'button:has-text("Accept all cookies")',
             'button:has-text("Agree")',
@@ -23,7 +23,8 @@ async def close_overlays(page: Page):
             '[aria-label*="agree i"]',
             '[data-testid*="accept"]',
             '[id*="accept"]'
-        ).first
+        ])
+        accept_button = page.locator(accept_selector).first
         await accept_button.click(timeout=5000)
         print("Closed an overlay/banner.")
     except Exception as e:
@@ -61,8 +62,8 @@ async def verify_login(page: Page) -> bool:
     """Checks if the login appears successful."""
     print("Verifying login status...")
     try:
-        # Look for indicators of being logged in using a broader set of selectors
-        logged_in_locator = page.locator(
+        # Combine selectors into a single string
+        logged_in_selector = ', '.join([
             'button[data-e2e="header-user-menu"]', # Coursera specific?
             '[aria-label*="Account"]',
             '[aria-label*="profile"]',
@@ -71,7 +72,8 @@ async def verify_login(page: Page) -> bool:
             '.c-ph-avatar', # Common class names
             '.user-avatar',
             'a[href*="/user/profile"]' # Link to profile page
-        ).first
+        ])
+        logged_in_locator = page.locator(logged_in_selector).first
         # Wait longer for the element to potentially appear after login redirects/loading
         await expect(logged_in_locator).to_be_visible(timeout=20000)
         print("Login appears successful - found user profile elements.")
@@ -350,7 +352,3 @@ if __name__ == "__main__":
     os.makedirs(TRACING_DIR, exist_ok=True)
 
     asyncio.run(run_test())
-
-# --- Remove old main function and direct asyncio.run(main()) call ---
-# (The old main function content is now distributed among the new functions)
-# Ensure no old asyncio.run(main()) call remains at the end of the file.

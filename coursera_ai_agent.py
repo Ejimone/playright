@@ -2,6 +2,10 @@ import asyncio
 import os
 import google.generativeai as genai
 from playwright.async_api import Page, Browser, BrowserContext
+from dotenv import load_dotenv # Import the function
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import functions from our refactored Coursera module
 import couseraLogin
