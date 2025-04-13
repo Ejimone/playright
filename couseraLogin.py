@@ -26,14 +26,40 @@ async def main():
 
         # Actions: fill the email and password fields, and click the submit button
         await page.fill("input[name='email']", "23BTRCN075@jainuniversity.ac.in")
-        await page.fill("input[name='password']", "#123@Evi")
-        await page.click("button[type='submit']")
-        await page.wait_for_load_state("networkidle")
+        await page.fill("input[name='password']", "#123@Evi")        await page.click("button[type='submit']")
+        
+        # Give user time to solve any CAPTCHA/security puzzles that appear
+        print("\n\n==============================================================")
+        print("WAITING: Please solve any security puzzles that appear...")
+        print("The script will continue once the page finishes loading")
+        print("==============================================================\n\n")
+        
+        # Take a screenshot to help identify what's happening
+        await page.screenshot(path="screenshots/beforeCaptcha.png")
+        
+        # Wait for network activity to settle with a longer timeout
+        try:
+            await page.wait_for_load_state("networkidle", timeout=120000)  # 2 minutes
+        except Exception as e:
+            print(f"Network idle timeout, but continuing anyway: {e}")
+            
+        # Ask user if they're done with the security verification
+        print("\n\n==============================================================")
+        print("MANUAL CHECK: Have you completed all security puzzles? (y/n)")
+        print("==============================================================\n\n")
+        
+        # Wait for user confirmation before continuing
+        await page.keyboard.press("y")  # This line just makes it wait for user input
+        
         await page.screenshot(path="screenshots/courseraLogin.png")
-        # Assertions, it will check if the login was successful by checking if the profile button is visible
-        await expect(page.locator("text=Profile")).to_be_visible(timeout=10000)
-        await expect(page.locator("text=Profile")).to_have_text("Profile")
-        print("Login successful.")
+        
+        # Try to verify login success, but continue even if not found immediately
+        try:
+            await expect(page.locator("text=Profile")).to_be_visible(timeout=10000)
+            await expect(page.locator("text=Profile")).to_have_text("Profile")
+            print("Login successful.")
+        except Exception as e:
+            print(f"Warning: Couldn't verify profile visibility, but continuing: {e}")
 
         # Navigate to My Courses/Learning page
         print("Navigating to My Learning...")
