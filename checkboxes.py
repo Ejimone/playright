@@ -1,5 +1,5 @@
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 
 
 async def main():
@@ -15,3 +15,13 @@ async def main():
         # Actions
         await page.check('label[for="tree-node-home"]')
         await page.screenshot(path="screenshots/checkbox.png")
+        # Assertions
+        assert await page.is_checked('label[for="tree-node-home"]') is True
+        await expect(page.locator("#result")).to_have_text("You selected :homedesktopnotescommandsdocumentsworks")
+        # stop tracing
+        await context.tracing.stop(path="tracing/checkbox.zip")
+        # close browser
+        await browser.close()
+
+
+asyncio.run(main())
