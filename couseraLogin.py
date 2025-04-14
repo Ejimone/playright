@@ -289,24 +289,52 @@ async def setup_coursera_session(headless=False, enable_tracing=True) -> tuple[B
        Returns browser, context, page, and playwright instance."""
     playwright = None
     try:
+        # Create user data directory if it doesn't exist
+        os.makedirs(USER_DATA_DIR, exist_ok=True)
+        print(f"Using persistent browser profile at: {USER_DATA_DIR}")
+        
         playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch_persistent_context(USER_DATA_DIR, headless=headless, viewport={"width": 1280, "height": 800})
+        # Use persistent context - this maintains login cookies between runs
+        browser_context = await playwright.chromium.launch_persistent_context(
+            USER_DATA_DIR, 
+            headless=headless, 
+            viewport={"width": 1280, "height": 800}
+        )
 
         if enable_tracing:
             os.makedirs(TRACING_DIR, exist_ok=True) # Ensure tracing dir exists
-            await browser.tracing.start(screenshots=True, snapshots=True, sources=True)
+            await browser_context.tracing.start(screenshots=True, snapshots=True, sources=True)
 
-        page = await browser.new_page()
+        # Use existing page or create a new one
+        existing_pages = browser_context.pages
+        if len(existing_pages) > 0:
+            page = existing_pages[0]  # Use the first existing page
+            print("Using existing browser page")
+        else:
+            page = await browser_context.new_page()
+            print("Created new browser page")
 
-        await perform_login(page)
-        await handle_manual_intervention(page) # Keep manual step
-
-        if not await verify_login(page):
-             raise Exception("Login verification failed after manual intervention.")
+        # Check if we need to log in or if session is still valid
+        print("Checking if already logged in...")
+        await page.goto("https://www.coursera.org/learn")
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+        
+        # Check if we're already logged in
+        is_logged_in = await verify_login(page)
+        
+        if not is_logged_in:
+            print("Not logged in. Performing login process...")
+            await perform_login(page)
+            await handle_manual_intervention(page) # Keep manual step for first login
+            
+            if not await verify_login(page):
+                 raise Exception("Login verification failed after manual intervention.")
+        else:
+            print("Already logged in from previous session!")
 
         await navigate_to_learning_page(page)
 
-        return browser, browser, page, playwright # Return playwright instance too
+        return None, browser_context, page, playwright # Return playwright instance too
 
     except Exception as e:
          print(f"Error during session setup: {e}")

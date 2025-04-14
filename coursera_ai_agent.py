@@ -209,29 +209,46 @@ async def main_agent():
                   print(f"Could not save screenshot on error: {ss_error}")
     finally:
         print("Cleaning up agent resources...")
-        # Fix: context.pages is a property, not a callable
+        
+        # With persistent context, we need different cleanup logic
         if context:
             try:
-                # Get pages as a property, not by calling it
-                pages = context.pages
-                if pages and len(pages) > 0:  # Check if there are pages
-                    if await context.tracing.is_enabled():
-                        try:
-                            await context.tracing.stop(path=os.path.join(couseraLogin.TRACING_DIR, "coursera_agent_trace.zip"))
-                            print("Tracing stopped.")
-                        except Exception as trace_error:
-                            print(f"Error stopping tracing: {trace_error}")
-            except Exception as context_error:
-                print(f"Error checking context pages: {context_error}")
+                # Stop tracing if enabled
+                if await context.tracing.is_enabled():
+                    try:
+                        await context.tracing.stop(path=os.path.join(couseraLogin.TRACING_DIR, "coursera_agent_trace.zip"))
+                        print("Tracing stopped.")
+                    except Exception as trace_error:
+                        print(f"Error stopping tracing: {trace_error}")
                 
-        if browser:
-            try:
-                # a sleep to ensure all actions are completed before closing
-                await asyncio.sleep(30)
-                await browser.close()
-                print("Browser closed.")
-            except Exception as browser_error:
-                print(f"Error closing browser: {browser_error}")
+                # With persistent context, we don't close the browser, just the pages
+                # This keeps cookies and session data for next run
+                pages = context.pages
+                for p in pages:
+                    if p != page:  # Don't close main page yet
+                        await p.close()
+                
+                # For the main page, navigate to a neutral page to free resources
+                if page:
+                    try:
+                        await page.goto("about:blank")
+                        print("Released page resources.")
+                    except Exception:
+                        pass
+                
+                # Don't close the context with persistent sessions
+                print("Browser session preserved for next run.")
+                
+            except Exception as context_error:
+                print(f"Error during resource cleanup: {context_error}")
+        
+        # Only close the browser if it's not a persistent context - uncomment if needed
+        # if browser and not context:
+        #    try:
+        #        await browser.close()
+        #        print("Browser closed.")
+        #    except Exception as browser_error:
+        #        print(f"Error closing browser: {browser_error}")
                 
         # Ensure playwright stops if it was started
         if playwright and playwright._impl_obj._was_started:
