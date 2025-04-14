@@ -1,13 +1,14 @@
 import asyncio
 from playwright.async_api import async_playwright, expect, Page, BrowserContext, Browser
-import os # Added for path joining and directory creation
+import os
+import json # Import json for handling state file existence/read errors
 
 # --- Configuration ---
 EMAIL = "23BTRCN075@jainuniversity.ac.in"
 PASSWORD = "#123@Evi" # Consider using environment variables for credentials
 SCREENSHOT_DIR = "screenshots"
 TRACING_DIR = "tracing"
-USER_DATA_DIR = os.path.join(os.path.expanduser('~'), '.playwright_user_data') # For persistent login
+AUTH_FILE_PATH = "coursera_auth_state.json" # Path to save/load state
 
 # --- Helper Functions ---
 
@@ -59,15 +60,16 @@ async def handle_manual_intervention(page: Page):
     os.makedirs(SCREENSHOT_DIR, exist_ok=True)
     await page.screenshot(path=os.path.join(SCREENSHOT_DIR, "courseraAfterManualIntervention.png"))
 
-async def verify_login(page: Page) -> bool:
+async def verify_login(page: Page, is_checking_state: bool = False) -> bool: # Add is_checking_state parameter
     """Checks if the login appears successful."""
     print("Verifying login status...")
-    
+
     # Take a screenshot for visual confirmation
     os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-    await page.screenshot(path=os.path.join(SCREENSHOT_DIR, "verify_login_page.png"))
+    screenshot_path = os.path.join(SCREENSHOT_DIR, "verify_login_state_check.png" if is_checking_state else "verify_login_page.png")
+    await page.screenshot(path=screenshot_path)
     print(f"Current page URL: {page.url}")
-    
+
     try:
         # Combine selectors into a single string
         logged_in_selector = (
@@ -81,29 +83,37 @@ async def verify_login(page: Page) -> bool:
             'a[href*="/user/profile"]'
         )
         logged_in_locator = page.locator(logged_in_selector).first
-        
+
         # Try to find login elements but don't fail if not found
-        is_visible = await logged_in_locator.is_visible(timeout=10000)
+        # Use a shorter timeout when just checking state
+        timeout = 5000 if is_checking_state else 10000
+        is_visible = await logged_in_locator.is_visible(timeout=timeout)
         if is_visible:
             print("Login appears successful - found user profile elements.")
             return True
     except Exception as e:
         print(f"Warning: Error checking login elements: {e}")
-    
+
     # Check URL as secondary verification
     current_url = page.url
     print(f"Checking URL: {current_url}")
-    
+
     # More flexible URL check - after login, URL likely has changed from login page
+    # Also check if we are on the target learning page already
     if ("/learn" in current_url or 
         "/home" in current_url or 
         "/browse" in current_url or
-        "authMode=login" not in current_url):  # If we're no longer on login page
-         print("URL check: Seems to be logged in (not on login page).")
+        (not is_checking_state and "authMode=login" not in current_url)): # If checking state, being off login page isn't enough
+         print("URL check: Seems to be logged in or on a relevant page.")
          return True
          
-    print("URL check: Still appears to be on login page.")
+    print("URL check: Does not confirm login.")
     
+    # If checking loaded state, don't ask user, just return failure
+    if is_checking_state:
+        print("Loaded state appears invalid or expired.")
+        return False
+
     # Since we had manual intervention, let's trust the user also logged in manually if needed
     user_confirmation = input("Could not automatically verify login. Are you logged in? (y/n): ").lower().strip()
     if user_confirmation == 'y' or user_confirmation == 'yes':
@@ -285,67 +295,95 @@ async def get_enrolled_courses(page: Page) -> list[dict]:
 
 # --- Main Setup Function ---
 async def setup_coursera_session(headless=False, enable_tracing=True) -> tuple[Browser | None, BrowserContext | None, Page | None, object | None]:
-    """Launches browser, sets up context, logs in, and navigates to learning page.
-       Returns browser, context, page, and playwright instance."""
+    """Launches browser, loads state if available, otherwise logs in,
+       and navigates to learning page. Saves state on successful fresh login."""
     playwright = None
+    browser = None
+    context = None
+    page = None
+    loaded_state_successfully = False
+
     try:
-        # Create user data directory if it doesn't exist
-        os.makedirs(USER_DATA_DIR, exist_ok=True)
-        print(f"Using persistent browser profile at: {USER_DATA_DIR}")
-        
         playwright = await async_playwright().start()
-        # Use persistent context - this maintains login cookies between runs
-        browser_context = await playwright.chromium.launch_persistent_context(
-            USER_DATA_DIR, 
-            headless=headless, 
-            viewport={"width": 1280, "height": 800}
-        )
+        browser = await playwright.chromium.launch(headless=headless)
 
-        if enable_tracing:
-            os.makedirs(TRACING_DIR, exist_ok=True) # Ensure tracing dir exists
-            await browser_context.tracing.start(screenshots=True, snapshots=True, sources=True)
+        # --- Try loading saved state ---
+        if os.path.exists(AUTH_FILE_PATH):
+            print(f"Attempting to load authentication state from {AUTH_FILE_PATH}...")
+            try:
+                context = await browser.new_context(
+                    storage_state=AUTH_FILE_PATH,
+                    viewport={"width": 1280, "height": 800}
+                )
+                page = await context.new_page()
+                print("Navigating to learning page to check loaded state...")
+                # Go directly to the target page
+                await page.goto("https://www.coursera.org/learn", timeout=25000, wait_until="domcontentloaded")
+                await asyncio.sleep(3) # Allow time for redirects/rendering
 
-        # Use existing page or create a new one
-        existing_pages = browser_context.pages
-        if len(existing_pages) > 0:
-            page = existing_pages[0]  # Use the first existing page
-            print("Using existing browser page")
-        else:
-            page = await browser_context.new_page()
-            print("Created new browser page")
+                # Verify if the loaded state is still valid
+                if await verify_login(page, is_checking_state=True):
+                    print("Successfully loaded and verified existing session.")
+                    loaded_state_successfully = True
+                    # Optional: Start tracing now if needed for the loaded session
+                    if enable_tracing:
+                         os.makedirs(TRACING_DIR, exist_ok=True)
+                         await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+                else:
+                    print("Loaded state is invalid or expired. Proceeding with full login.")
+                    await page.close()
+                    await context.close() # Close the context with invalid state
+                    context = None # Reset context
+                    page = None    # Reset page
 
-        # Check if we need to log in or if session is still valid
-        print("Checking if already logged in...")
-        await page.goto("https://www.coursera.org/learn")
-        await page.wait_for_load_state("domcontentloaded", timeout=15000)
-        
-        # Check if we're already logged in
-        is_logged_in = await verify_login(page)
-        
-        if not is_logged_in:
-            print("Not logged in. Performing login process...")
+            except Exception as e:
+                print(f"Error loading state or verifying login: {e}. Proceeding with full login.")
+                if page: await page.close()
+                if context: await context.close()
+                context, page = None, None # Reset
+
+        # --- Perform full login if state didn't load or was invalid ---
+        if not loaded_state_successfully:
+            print("Performing full login...")
+            context = await browser.new_context(viewport={"width": 1280, "height": 800})
+            if enable_tracing:
+                os.makedirs(TRACING_DIR, exist_ok=True)
+                await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+
+            page = await context.new_page()
+
             await perform_login(page)
-            await handle_manual_intervention(page) # Keep manual step for first login
-            
-            if not await verify_login(page):
+            await handle_manual_intervention(page) # Keep manual step for initial login
+
+            if not await verify_login(page): # Use standard verification here
                  raise Exception("Login verification failed after manual intervention.")
-        else:
-            print("Already logged in from previous session!")
 
-        await navigate_to_learning_page(page)
+            # Ensure we are on the learning page before saving state
+            await navigate_to_learning_page(page)
 
-        return None, browser_context, page, playwright # Return playwright instance too
+            # --- Save authentication state ---
+            print(f"Login successful. Saving authentication state to {AUTH_FILE_PATH}...")
+            await context.storage_state(path=AUTH_FILE_PATH)
+            print("Authentication state saved.")
+
+        # At this point, we should have a valid context and page
+        if not page or not context:
+             raise Exception("Failed to establish a valid session.")
+
+        return browser, context, page, playwright # Return all necessary objects
 
     except Exception as e:
          print(f"Error during session setup: {e}")
          # Clean up resources if setup fails partially
-         if 'browser' in locals() and browser and await browser.pages():
-             if enable_tracing and await browser.tracing.is_enabled():
-                 await browser.tracing.stop(path=os.path.join(TRACING_DIR, "setup_error_trace.zip"))
-         if 'browser' in locals() and browser:
-             await browser.close()
-         if playwright and playwright._impl_obj._was_started:
-             await playwright.stop()
+         if page: await page.close()
+         if context:
+             if enable_tracing and await context.tracing.is_enabled():
+                 try:
+                     await context.tracing.stop(path=os.path.join(TRACING_DIR, "setup_error_trace.zip"))
+                 except Exception: pass # Ignore tracing stop errors during cleanup
+             await context.close()
+         if browser: await browser.close()
+         if playwright and playwright._impl_obj._was_started: await playwright.stop()
          # Return None for all values to indicate failure
          return None, None, None, None
 
@@ -402,7 +440,3 @@ if __name__ == "__main__":
     os.makedirs(TRACING_DIR, exist_ok=True)
 
     asyncio.run(run_test())
-
-# --- Remove old main function and direct asyncio.run(main()) call ---
-# (The old main function content is now distributed among the new functions)
-# Ensure no old asyncio.run(main()) call remains at the end of the file.
