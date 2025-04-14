@@ -34,7 +34,8 @@ async def close_overlays(page: Page):
         print(f"Overlay/banner not found or could not be closed (this is often ok): {e}")
 
 async def perform_login(page: Page):
-    """Fills login credentials and submits the form."""
+    """Fills login credentials and submits the form
+    ."""
     print("Performing login...")
     await page.goto("https://www.coursera.org/?authMode=login")
     await close_overlays(page) # Attempt to close overlays right after navigation
@@ -125,25 +126,49 @@ async def verify_login(page: Page, is_checking_state: bool = False) -> bool: # A
 
 async def navigate_to_learning_page(page: Page):
     """Navigates to the 'My Learning' or equivalent page if not already there."""
-    print("\nChecking if already on a learning page...")
+    print("\nChecking current page...")
     current_url = page.url
-    if "/learn" in current_url or "/home" in current_url:
-        print("Already on a learning/dashboard page.")
+    print(f"Current URL: {current_url}")
+    
+    # Recognize Coursera's program-specific URLs as valid learning pages
+    # Note the URL in the log: https://www.coursera.org/programs/socse-cse-btech-cse-tsnia
+    if ("/learn" in current_url or 
+        "/home" in current_url or 
+        "/my-learning" in current_url or
+        "/programs/" in current_url):
+        print("Already on a valid Coursera page that likely shows courses.")
         os.makedirs(SCREENSHOT_DIR, exist_ok=True)
         await page.screenshot(path=os.path.join(SCREENSHOT_DIR, "learningPage_already_there.png"))
-        return # No need to navigate
+        
+        # If we're on a program page but not specifically on my-learning tab, try to navigate there
+        if "/programs/" in current_url and "/my-learning" not in current_url:
+            try:
+                print("On a program page, trying to navigate to My Learning tab...")
+                my_learning_link = page.locator('a:has-text("My Learning")').first
+                if await my_learning_link.is_visible(timeout=5000):
+                    await my_learning_link.click()
+                    await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    await asyncio.sleep(3)
+                    print(f"Navigated to My Learning tab: {page.url}")
+            except Exception as e:
+                print(f"Could not navigate to My Learning tab: {e}")
+        
+        return # No need for further navigation
 
+    # If we're not on a recognized page, proceed with standard navigation attempts
     print("Navigating to My Learning page...")
     await asyncio.sleep(3) # Extra wait for elements to settle after login/intervention
 
     # Prioritize more specific selectors first
     dashboard_selectors = [
-        'a[data-e2e="dashboard-link"]', # Specific data attribute
+        'a[data-e2e="dashboard-link"]',
         'a:has-text("My Learning")',
         'a:has-text("My Courses")',
         'a:has-text("Dashboard")',
-        'a[href*="/learn"]', # More general link patterns
-        'a[href*="/home"]'
+        'a[href*="/learn"]',
+        'a[href*="/home"]',
+        'a[href*="/my-learning"]',
+        'a[href*="/programs"]'
     ]
 
     navigated = False
@@ -156,42 +181,75 @@ async def navigate_to_learning_page(page: Page):
                 await target_link.click()
                 print(f"Clicked element matching: {selector}")
                 # Wait for navigation to likely complete
-                await page.wait_for_load_state("domcontentloaded", timeout=20000) # Longer timeout
+                await page.wait_for_load_state("domcontentloaded", timeout=20000)
                 await asyncio.sleep(3) # Wait after load for JS rendering
-                # Verify URL changed to expected pattern
-                if "/learn" in page.url or "/home" in page.url:
+                
+                # More flexible URL check that includes program-specific URLs
+                if ("/learn" in page.url or 
+                    "/home" in page.url or 
+                    "/my-learning" in page.url or
+                    "/programs/" in page.url):
                     navigated = True
                     print("Navigation successful (URL check).")
                     break # Exit loop once navigation is successful
                 else:
                     print(f"Clicked {selector}, but URL is now {page.url}. Trying next selector.")
             else:
-                 print(f"Selector {selector} not visible.")
+                print(f"Selector {selector} not visible.")
         except Exception as e:
             print(f"Selector {selector} failed: {e}")
 
     if not navigated:
-        print("Could not find/use standard navigation links. Trying direct navigation to /learn...")
-        try:
-            await page.goto("https://www.coursera.org/learn", timeout=25000) # Longer timeout for direct nav
-            await page.wait_for_load_state("domcontentloaded", timeout=20000)
-            if "/learn" in page.url or "/home" in page.url:
-                 navigated = True
-                 print("Direct navigation to /learn successful.")
+        # Try direct navigation to various possible URLs
+        direct_urls = [
+            "https://www.coursera.org/learn",
+            "https://www.coursera.org/home",
+            "https://www.coursera.org/in-progress"
+        ]
+        
+        for url in direct_urls:
+            try:
+                print(f"Trying direct navigation to {url}...")
+                await page.goto(url, timeout=25000)
+                await page.wait_for_load_state("domcontentloaded", timeout=20000)
+                await asyncio.sleep(3)
+                
+                # Check if navigation succeeded by URL pattern
+                current_url = page.url
+                if ("/learn" in current_url or 
+                    "/home" in current_url or 
+                    "/my-learning" in current_url or
+                    "/programs/" in current_url):
+                    navigated = True
+                    print(f"Direct navigation successful: {current_url}")
+                    break
+                else:
+                    print(f"Direct navigation to {url} redirected to unexpected URL: {current_url}")
+            except Exception as e:
+                print(f"Direct navigation to {url} failed: {e}")
+        
+        # If all direct navigations failed, check if current URL is reasonable enough
+        if not navigated:
+            current_url = page.url
+            if ("/learn" in current_url or 
+                "/home" in current_url or 
+                "/my-learning" in current_url or
+                "/programs/" in current_url or
+                "coursera.org" in current_url): # Very permissive as last resort
+                print(f"Navigation attempts failed, but current URL seems usable: {current_url}")
+                navigated = True
             else:
-                 print("Direct navigation attempted, but ended at wrong URL.")
-        except Exception as e:
-            print(f"Direct navigation to /learn failed: {e}")
-            os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-            await page.screenshot(path=os.path.join(SCREENSHOT_DIR, "navigationFailed.png"))
-            raise ConnectionError("Failed to navigate to the learning page.")
+                print(f"Navigation attempts failed and current URL is not usable: {current_url}")
+                os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+                await page.screenshot(path=os.path.join(SCREENSHOT_DIR, "navigationFailed.png"))
+                raise ConnectionError("Failed to navigate to a usable Coursera page.")
 
     if navigated:
-        print("Successfully on a learning/dashboard page.")
+        print("Successfully on a page where we can likely see courses.")
         os.makedirs(SCREENSHOT_DIR, exist_ok=True)
         await page.screenshot(path=os.path.join(SCREENSHOT_DIR, "learningPage.png"))
     else:
-        print("ERROR: Failed to reach learning page after all attempts.")
+        print("ERROR: Failed to reach a usable Coursera page after all attempts.")
         raise ConnectionError("Failed to navigate to the learning page.")
 
 
@@ -314,12 +372,11 @@ async def setup_coursera_session(headless=False, enable_tracing=True) -> tuple[B
                 context = await browser.new_context(
                     storage_state=AUTH_FILE_PATH,
                     viewport={"width": 1280, "height": 800}
-                )
-                page = await context.new_page()
+                )                page = await context.new_page()
                 print("Navigating to learning page to check loaded state...")
-                # Go directly to the target page
-                await page.goto("https://www.coursera.org/learn", timeout=25000, wait_until="domcontentloaded")
-                await asyncio.sleep(3) # Allow time for redirects/rendering
+                # Go directly to your specific program learning page
+                await page.goto("https://www.coursera.org/programs/socse-cse-btech-cse-tsnia/my-learning?myLearningTab=IN_PROGRESS", timeout=25000, wait_until="domcontentloaded")
+                await asyncio.sleep(10) # Allow time for redirects/rendering
 
                 # Verify if the loaded state is still valid
                 if await verify_login(page, is_checking_state=True):

@@ -210,24 +210,29 @@ async def main_agent():
     finally:
         print("Cleaning up agent resources...")
         # Fix: context.pages is a property, not a callable
+        # Fix: proper checking for tracing.is_enabled() method
         if context:
             try:
                 # Get pages as a property, not by calling it
                 pages = context.pages
                 if pages and len(pages) > 0:  # Check if there are pages
-                    if await context.tracing.is_enabled():
-                        try:
-                            await context.tracing.stop(path=os.path.join(couseraLogin.TRACING_DIR, "coursera_agent_trace.zip"))
-                            print("Tracing stopped.")
-                        except Exception as trace_error:
-                            print(f"Error stopping tracing: {trace_error}")
+                    try:
+                        # Check if tracing is enabled and has the is_enabled method
+                        tracing_attr = getattr(context, 'tracing', None)
+                        if tracing_attr and hasattr(tracing_attr, 'is_enabled'):
+                            if await tracing_attr.is_enabled():
+                                try:
+                                    await context.tracing.stop(path=os.path.join(couseraLogin.TRACING_DIR, "coursera_agent_trace.zip"))
+                                    print("Tracing stopped.")
+                                except Exception as trace_error:
+                                    print(f"Error stopping tracing: {trace_error}")
+                    except Exception as tracing_error:
+                        print(f"Error checking tracing status: {tracing_error}")
             except Exception as context_error:
                 print(f"Error checking context pages: {context_error}")
                 
         if browser:
             try:
-                # a sleep to ensure all actions are completed before closing
-                await asyncio.sleep(30)
                 await browser.close()
                 print("Browser closed.")
             except Exception as browser_error:
