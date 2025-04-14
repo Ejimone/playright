@@ -47,7 +47,7 @@ async def choose_course_with_ai(courses: list[dict]) -> dict | None:
         return None
 
     prompt_parts = [
-        "You are an AI assistant helping a user navigate their Coursera courses.",
+        "You are an AI assistant helping a user navigate their Coursera courses., and you are to perform actions on the course, such as playing videos, answering quizzes, etc.",
         "Here is a list of the user's enrolled courses:",
     ]
     for i, course in enumerate(courses):
