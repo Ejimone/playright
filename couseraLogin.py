@@ -7,6 +7,7 @@ EMAIL = "23BTRCN075@jainuniversity.ac.in"
 PASSWORD = "#123@Evi" # Consider using environment variables for credentials
 SCREENSHOT_DIR = "screenshots"
 TRACING_DIR = "tracing"
+USER_DATA_DIR = os.path.join(os.path.expanduser('~'), '.playwright_user_data') # For persistent login
 
 # --- Helper Functions ---
 
@@ -289,14 +290,13 @@ async def setup_coursera_session(headless=False, enable_tracing=True) -> tuple[B
     playwright = None
     try:
         playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(headless=headless)
-        context = await browser.new_context(viewport={"width": 1280, "height": 800})
+        browser = await playwright.chromium.launch_persistent_context(USER_DATA_DIR, headless=headless, viewport={"width": 1280, "height": 800})
 
         if enable_tracing:
             os.makedirs(TRACING_DIR, exist_ok=True) # Ensure tracing dir exists
-            await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+            await browser.tracing.start(screenshots=True, snapshots=True, sources=True)
 
-        page = await context.new_page()
+        page = await browser.new_page()
 
         await perform_login(page)
         await handle_manual_intervention(page) # Keep manual step
@@ -306,14 +306,14 @@ async def setup_coursera_session(headless=False, enable_tracing=True) -> tuple[B
 
         await navigate_to_learning_page(page)
 
-        return browser, context, page, playwright # Return playwright instance too
+        return browser, browser, page, playwright # Return playwright instance too
 
     except Exception as e:
          print(f"Error during session setup: {e}")
          # Clean up resources if setup fails partially
-         if 'context' in locals() and context and await context.pages():
-             if enable_tracing and await context.tracing.is_enabled():
-                 await context.tracing.stop(path=os.path.join(TRACING_DIR, "setup_error_trace.zip"))
+         if 'browser' in locals() and browser and await browser.pages():
+             if enable_tracing and await browser.tracing.is_enabled():
+                 await browser.tracing.stop(path=os.path.join(TRACING_DIR, "setup_error_trace.zip"))
          if 'browser' in locals() and browser:
              await browser.close()
          if playwright and playwright._impl_obj._was_started:

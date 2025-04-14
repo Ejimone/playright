@@ -226,6 +226,8 @@ async def main_agent():
                 
         if browser:
             try:
+                # a sleep to ensure all actions are completed before closing
+                await asyncio.sleep(30)
                 await browser.close()
                 print("Browser closed.")
             except Exception as browser_error:
