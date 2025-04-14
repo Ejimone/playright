@@ -15,15 +15,15 @@ async def close_overlays(page: Page):
     try:
         print("Checking for overlays...")
         # Combine selectors into a single string
-        accept_selector = ', '.join([
-            'button:has-text("Accept")',
-            'button:has-text("Accept all cookies")',
-            'button:has-text("Agree")',
-            '[aria-label*="accept i"]',
-            '[aria-label*="agree i"]',
-            '[data-testid*="accept"]',
+        accept_selector = (
+            'button:has-text("Accept"), ' # Note the comma and space
+            'button:has-text("Accept all cookies"), '
+            'button:has-text("Agree"), '
+            '[aria-label*="accept i"], '
+            '[aria-label*="agree i"], '
+            '[data-testid*="accept"], '
             '[id*="accept"]'
-        ])
+        )
         accept_button = page.locator(accept_selector).first
         await accept_button.click(timeout=5000)
         print("Closed an overlay/banner.")
@@ -61,34 +61,56 @@ async def handle_manual_intervention(page: Page):
 async def verify_login(page: Page) -> bool:
     """Checks if the login appears successful."""
     print("Verifying login status...")
+    
+    # Take a screenshot for visual confirmation
+    os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+    await page.screenshot(path=os.path.join(SCREENSHOT_DIR, "verify_login_page.png"))
+    print(f"Current page URL: {page.url}")
+    
     try:
         # Combine selectors into a single string
-        logged_in_selector = ', '.join([
-            'button[data-e2e="header-user-menu"]', # Coursera specific?
-            '[aria-label*="Account"]',
-            '[aria-label*="profile"]',
-            'img[alt*="Profile"]',
-            'img[alt*="profile"]',
-            '.c-ph-avatar', # Common class names
-            '.user-avatar',
-            'a[href*="/user/profile"]' # Link to profile page
-        ])
+        logged_in_selector = (
+            'button[data-e2e="header-user-menu"], ' 
+            '[aria-label*="Account"], '
+            '[aria-label*="profile"], '
+            'img[alt*="Profile"], '
+            'img[alt*="profile"], '
+            '.c-ph-avatar, '
+            '.user-avatar, '
+            'a[href*="/user/profile"]'
+        )
         logged_in_locator = page.locator(logged_in_selector).first
-        # Wait longer for the element to potentially appear after login redirects/loading
-        await expect(logged_in_locator).to_be_visible(timeout=20000)
-        print("Login appears successful - found user profile elements.")
-        return True
+        
+        # Try to find login elements but don't fail if not found
+        is_visible = await logged_in_locator.is_visible(timeout=10000)
+        if is_visible:
+            print("Login appears successful - found user profile elements.")
+            return True
     except Exception as e:
-        print(f"Warning: Could not confirm successful login via profile elements: {e}")
-        os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-        await page.screenshot(path=os.path.join(SCREENSHOT_DIR, "loginVerificationFailed.png"))
-        # Optionally, try a secondary check, like checking the URL
-        current_url = page.url
-        if "/learn" in current_url or "/home" in current_url:
-             print("Secondary check: URL suggests successful login.")
-             return True
-        print("Secondary check: URL does not confirm login.")
-        return False
+        print(f"Warning: Error checking login elements: {e}")
+    
+    # Check URL as secondary verification
+    current_url = page.url
+    print(f"Checking URL: {current_url}")
+    
+    # More flexible URL check - after login, URL likely has changed from login page
+    if ("/learn" in current_url or 
+        "/home" in current_url or 
+        "/browse" in current_url or
+        "authMode=login" not in current_url):  # If we're no longer on login page
+         print("URL check: Seems to be logged in (not on login page).")
+         return True
+         
+    print("URL check: Still appears to be on login page.")
+    
+    # Since we had manual intervention, let's trust the user also logged in manually if needed
+    user_confirmation = input("Could not automatically verify login. Are you logged in? (y/n): ").lower().strip()
+    if user_confirmation == 'y' or user_confirmation == 'yes':
+        print("Login confirmed by user.")
+        return True
+        
+    print("Login not confirmed.")
+    return False
 
 async def navigate_to_learning_page(page: Page):
     """Navigates to the 'My Learning' or equivalent page if not already there."""
@@ -352,3 +374,7 @@ if __name__ == "__main__":
     os.makedirs(TRACING_DIR, exist_ok=True)
 
     asyncio.run(run_test())
+
+# --- Remove old main function and direct asyncio.run(main()) call ---
+# (The old main function content is now distributed among the new functions)
+# Ensure no old asyncio.run(main()) call remains at the end of the file.

@@ -209,20 +209,35 @@ async def main_agent():
                   print(f"Could not save screenshot on error: {ss_error}")
     finally:
         print("Cleaning up agent resources...")
-        if context and await context.pages():
-            if await context.tracing.is_enabled():
-                try:
-                    await context.tracing.stop(path=os.path.join(couseraLogin.TRACING_DIR, "coursera_agent_trace.zip"))
-                    print("Tracing stopped.")
-                except Exception as trace_error:
-                    print(f"Error stopping tracing: {trace_error}")
+        # Fix: context.pages is a property, not a callable
+        if context:
+            try:
+                # Get pages as a property, not by calling it
+                pages = context.pages
+                if pages and len(pages) > 0:  # Check if there are pages
+                    if await context.tracing.is_enabled():
+                        try:
+                            await context.tracing.stop(path=os.path.join(couseraLogin.TRACING_DIR, "coursera_agent_trace.zip"))
+                            print("Tracing stopped.")
+                        except Exception as trace_error:
+                            print(f"Error stopping tracing: {trace_error}")
+            except Exception as context_error:
+                print(f"Error checking context pages: {context_error}")
+                
         if browser:
-            await browser.close()
-            print("Browser closed.")
+            try:
+                await browser.close()
+                print("Browser closed.")
+            except Exception as browser_error:
+                print(f"Error closing browser: {browser_error}")
+                
         # Ensure playwright stops if it was started
         if playwright and playwright._impl_obj._was_started:
-             await playwright.stop()
-             print("Playwright stopped.")
+             try:
+                 await playwright.stop()
+                 print("Playwright stopped.")
+             except Exception as pw_error:
+                 print(f"Error stopping playwright: {pw_error}")
 
 
 if __name__ == "__main__":
