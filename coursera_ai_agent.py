@@ -102,7 +102,7 @@ async def interact_with_course(page: Page, course_url: str):
     try:
         # More specific selectors might be needed
         play_button_selectors = [
-            'button[aria-label*="Play video"]'
+            'button[aria-label*="Play video"]',
             'button[class*="play-button"]'
             '.video-js .vjs-play-control',
             'button[data-track-component="play_button"]'
@@ -123,7 +123,7 @@ async def interact_with_course(page: Page, course_url: str):
     # Example: Find the first quiz link (very basic, needs refinement)
     try:
         quiz_link_selectors = [
-            'a[href*="quiz"]'
+            'a[href*="quiz"]',
             'a:has-text("Quiz")',
             'button:has-text("Quiz")',
             'a[data-track-component="quiz_link"]'
